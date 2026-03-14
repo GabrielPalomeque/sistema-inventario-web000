@@ -6,6 +6,7 @@ from datetime import datetime
 import pandas as pd
 import os
 import unicodedata
+import json
 
 # --- CONFIGURACIÓN DE PÁGINA ---
 st.set_page_config(page_title="Sistema POS Web", page_icon="🛒", layout="wide")
@@ -30,12 +31,14 @@ CELDA_DOLAR_COL = 9
 COL_PRECIO_USD = 10        
 COL_PRECIO_ADICIONAL = 11  
 
-# --- CONEXIÓN A GOOGLE SHEETS ---
+# --- CONEXIÓN A GOOGLE SHEETS (USANDO STREAMLIT SECRETS) ---
 @st.cache_resource
 def conectar_google_sheets():
     scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
-    # AQUÍ ESTÁ EL CAMBIO A LA NUEVA LLAVE:
-    creds = ServiceAccountCredentials.from_json_keyfile_name("credenciales_tienda2.json", scope)
+    # Cargamos el JSON directamente desde la bóveda segura de Streamlit
+    cred_dict = json.loads(st.secrets["google_json"])
+    creds = ServiceAccountCredentials.from_json_keyfile_dict(cred_dict, scope)
+    
     cliente = gspread.authorize(creds)
     # ¡ATENCIÓN! Cambia "NOMBRE_DE_TU_NUEVO_EXCEL" por el nombre real de tu nueva hoja
     archivo = cliente.open("Copia de Inventario_1")
@@ -157,7 +160,6 @@ else:
                     st.session_state.ultimo_recibo_html = ""
                     st.rerun()
             with c_btn2:
-                # BOTÓN DE DESCARGA DEL RECIBO HTML
                 fecha_str_descarga = datetime.now().strftime("%Y%m%d_%H%M%S")
                 st.download_button(
                     label="📥 Descargar Recibo (HTML)",
@@ -172,7 +174,6 @@ else:
             with col_izq:
                 st.subheader("Buscador de Productos")
                 
-                # Filtros en Cascada
                 f_cat, f_mar = st.columns(2)
                 with f_cat: cat_sel = st.selectbox("Categoría:", categorias_unicas)
                 with f_mar: 
@@ -263,7 +264,6 @@ else:
                             ])
                         hoja_historial.append_rows(filas_h)
                         
-                        # --- RECIBO HTML ACTUALIZADO (MUESTRA BS Y $US) ---
                         html_recibo = f"""
                         <div style="font-family:'Courier New', monospace; background:white; color:black; width:100%; max-width:350px; margin:0 auto; padding:20px; border-radius:5px; border: 1px solid #ccc;">
                             <h2 style="text-align:center; margin-bottom:5px;">{st.session_state.tienda}</h2>
