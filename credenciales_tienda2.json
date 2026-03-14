@@ -1,13 +1,1 @@
-{
-  "type": "service_account",
-  "project_id": "sistema-inventario-489206",
-  "private_key_id": "10b57e42493ba8ff5e372706954f062c5bb984b6",
-  "private_key": "-----BEGIN PRIVATE KEY-----\nMIIEvgIBADANBgkqhkiG9w0BAQEFAASCBKgwggSkAgEAAoIBAQDCW7vDVL4ONh9S\nH1GoS2i3csX7XwCsUcsKx0VTVG1tUIsKNl29RYwDCEDLR6nh8kNv8PN9luaKKeZM\nqEHMeHGYWAzusSMl2O8eCegv2gwlaIYNkvwCb3n1li+6B22tyNgiFZtb8MOqJ1I2\nkpjUzACUETuWqE/nGLr1Ph11SYJfVIGMzR/1wkpZeCwqMFzFtvDaz9wFiVNYObGF\nV1qSHA6FCt5ybhjFDrHOFJQvcbi3X3HZmq2l9vummUzpw/mqbjMs4vPGa24avH5q\n9/dqFlYZUJUf0kzPzGz3Zu+0gsYGrwKZPTyHVkUVLxBrv2cn6XCYgACp3kgUDhlZ\ntIafetivAgMBAAECggEABWdDexS6C+8ZQ9E3FfSyvpbkRi7H+AJ2IKCVntF0EVvx\n4aDNTlvGnrb2BjDB2lQ/57bNLiqp0iGEE5GB8stObSvVgDVQgtbbHvyrhdkMCWY0\ng+AYPYEX5On9/bADLpes2pW7Mf0pk2twb6/3q8LYKUWpYHDhd81KNVM6wm3+v+Ov\nJzSHwFT0sjxpQ5x+Tydi1rP4OhkJ6KYNiiui4xlD6eHqnf5o5qDqMAQLzpvU/C6S\n+n7ZI50evRIEwH/IPXmuiqFe7pnLQylAvO9Ox/5BSLbLy3a3NEPrt9ZQGrEIiNat\nL+RXx6o2vsUGLlnA5gEETgJDdETHBhAJ4jxPr4yUkQKBgQDf68HGXSfndt7BVdiK\nKlzcECaQUUmv7bQ3vK2t+8inhLFG5EOGW3UgvWAA71o5SCoXxuCBhY+bEwPhAyz1\nA8s1BhgNOK7pbDp0Bo/zfn0Bc2cUzl5ukKHb7yhpeyhfuotx/kRyObgEqQH5bmqA\nIipHC8e8TjDkLZKayqULPKVFiwKBgQDeM8amMM+iOdZ3eMSVrWEbhfs4ThBtgZHQ\nTbI8pFrY7huzG162zEKetDhkyq4tGLgjsB37cmwa2/pUOSG7sVN28SHLTLiad1uO\ncMOqGGo4+RRsnGkYjxiVj/e30lf6sEoPQsz/saiXZb7M5AzJ1Nzn7iZ/k5DTn8y2\nuOdPAZFF7QKBgQCPUhu99kQjP49GGcc2b/TtmZzFRHIwm6l8/1P/ByggKKs7H8Ek\njwdCBFQdZRXPkiP3AgEShcUr0Zjq/ZhZ3qrC7nqYg85Yc0BaoRSkGjKyqgWxaIFC\nrWocFlA8a2qlEwZL2R5AKjdhLDeqSgT6rGN5A8489aMPeSfb0ZafwZpbDwKBgQDW\n/L958oYijtVbuMRzkVIAYEyluJoaaZ/cLCCEnfysIQ056QRl1xGqHfLmSlflmCIp\nnXAU5iuEfUwiCzkBMdvwm/O3kN6XzV4PXjliLMcxooVJZLgmo+UEaEwkVeb7zW+K\nfnZ7+reE7FOESC27ZjHqUTh8fRlGODnInPRoM7sMLQKBgHwrtsVV2Neco6gML9Gb\nWnReFm300BP1MK1iICMtLtQ67ohmm/mXNkaxJne55R5zyJvpG76Hjl/ZPr11Z2DD\nGo6dRljRxa566e4fEQ39rrVpsvTqsnfFTOxd7AheonT5yEm0GJSPvbShB5BNi+QT\nj96j0fZ4IKGzQ2llWBzrbtS0\n-----END PRIVATE KEY-----\n",
-  "client_email": "sucursal-prueba-web@sistema-inventario-489206.iam.gserviceaccount.com",
-  "client_id": "110053953986682945030",
-  "auth_uri": "https://accounts.google.com/o/oauth2/auth",
-  "token_uri": "https://oauth2.googleapis.com/token",
-  "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
-  "client_x509_cert_url": "https://www.googleapis.com/robot/v1/metadata/x509/sucursal-prueba-web%40sistema-inventario-489206.iam.gserviceaccount.com",
-  "universe_domain": "googleapis.com"
-}
+
