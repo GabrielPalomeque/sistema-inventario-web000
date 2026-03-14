@@ -31,17 +31,17 @@ CELDA_DOLAR_COL = 9
 COL_PRECIO_USD = 10        
 COL_PRECIO_ADICIONAL = 11  
 
-# --- CONEXIÓN A GOOGLE SHEETS (USANDO STREAMLIT SECRETS) ---
+# --- CONEXIÓN A GOOGLE SHEETS (VÍA SECRETS) ---
 @st.cache_resource
 def conectar_google_sheets():
     scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
-    # Cargamos el JSON directamente desde la bóveda segura de Streamlit
+    # LEEMOS DESDE LA BÓVEDA SECRETA DE STREAMLIT
     cred_dict = json.loads(st.secrets["google_json"])
     creds = ServiceAccountCredentials.from_json_keyfile_dict(cred_dict, scope)
     
     cliente = gspread.authorize(creds)
     # ¡ATENCIÓN! Cambia "NOMBRE_DE_TU_NUEVO_EXCEL" por el nombre real de tu nueva hoja
-    archivo = cliente.open("Copia de Inventario_1")
+    archivo = cliente.open("NOMBRE_DE_TU_NUEVO_EXCEL")
     return archivo
 
 try:
