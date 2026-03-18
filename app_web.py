@@ -36,7 +36,7 @@ COL_PRECIO_ADICIONAL = 11
 def conectar_google_sheets():
     scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
     # Leerá el archivo secreto que subiremos directo a Render
-    creds = ServiceAccountCredentials.from_json_keyfile_name("credenciales_tienda2.json", scope)
+    creds = ServiceAccountCredentials.from_json_keyfile_name("credenciales.json", scope)
     cliente = gspread.authorize(creds)
     archivo = cliente.open("Copia de Inventario_1")
     return archivo
