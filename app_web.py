@@ -35,12 +35,11 @@ COL_PRECIO_ADICIONAL = 11
 @st.cache_resource
 def conectar_google_sheets():
     scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
-    # Leerá el archivo secreto que subiremos directo a Render
+    # 👇 AQUÍ ESTÁ EL CAMBIO: Ahora busca "credenciales.json"
     creds = ServiceAccountCredentials.from_json_keyfile_name("credenciales.json", scope)
     cliente = gspread.authorize(creds)
-    archivo = cliente.open("Copia de Inventario_1")
+    archivo = cliente.open("Copia de Inventario_1") # Asegúrate de que este sea el nombre correcto de tu Excel
     return archivo
-
 try:
     archivo = conectar_google_sheets()
     hoja_inventario = archivo.worksheet("Inventario")
