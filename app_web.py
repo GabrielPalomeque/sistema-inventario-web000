@@ -11,7 +11,7 @@ import traceback
 # --- CONFIGURACIÓN DE PÁGINA ---
 st.set_page_config(page_title="Sistema POS Web", page_icon="🛒", layout="wide")
 
-# --- FUNCIÓN PARA NORMALIZAR TEXTO ---
+# --- FUNCIÓN PARA NORMALIZAR TEXTO (MAYÚSCULAS Y SIN ACENTOS) ---
 def normalizar_texto(texto):
     if not texto: return ""
     texto = str(texto)
@@ -19,7 +19,7 @@ def normalizar_texto(texto):
     texto = ''.join(c for c in texto if unicodedata.category(c) != 'Mn')
     return texto.upper().strip()
 
-# --- CONFIGURACIÓN DE LA SUCURSAL ---
+# --- CONFIGURACIÓN DE LA SUCURSAL (NUEVOS NOMBRES) ---
 COLUMNAS_TIENDA = {
     "MI STORE CENTER": 4,  
     "GALERIA LA PAZ": 5,       
@@ -35,18 +35,21 @@ COL_PRECIO_ADICIONAL = 11
 @st.cache_resource
 def conectar_google_sheets():
     scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
-    # 👇 AQUÍ ESTÁ EL CAMBIO: Ahora busca "credenciales.json"
+    # Busca el archivo físico en la bóveda secreta de Render
     creds = ServiceAccountCredentials.from_json_keyfile_name("credenciales.json", scope)
     cliente = gspread.authorize(creds)
-    archivo = cliente.open("Copia de Inventario_1") # Asegúrate de que este sea el nombre correcto de tu Excel
+    
+    # Enlace directo a tu Excel "Inventario_Central"
+    archivo = cliente.open_by_url("https://docs.google.com/spreadsheets/d/1Mfr5GShbSnToWSSzZohsfLQe9-LX4-zvTS1MY9WflIU/edit")
     return archivo
+
 try:
     archivo = conectar_google_sheets()
     hoja_inventario = archivo.worksheet("Inventario")
     hoja_historial = archivo.worksheet("Historial")
     hoja_usuarios = archivo.worksheet("Usuarios")
 except Exception as e:
-    st.error("🚨 Error al conectar con Google Sheets. Detalles técnicos:")
+    st.error("🚨 Error al conectar con Google Sheets. Revisa los permisos de Editor y las pestañas.")
     st.code(traceback.format_exc())
     st.stop()
 
@@ -117,6 +120,7 @@ if not st.session_state.logged_in:
 
 # --- 2. PANTALLA PRINCIPAL DEL SISTEMA ---
 else:
+    # --- BARRA LATERAL (MENU) ---
     st.sidebar.title(f"🏬 {st.session_state.tienda}")
     st.sidebar.write(f"👤 **Cajero:** {st.session_state.usuario}")
     st.sidebar.write(f"🛡️ **Rol:** {st.session_state.cargo}")
@@ -131,11 +135,13 @@ else:
         for key in list(st.session_state.keys()): del st.session_state[key]
         st.rerun()
 
+    # Preparar datos base
     datos_completos = st.session_state.datos_completos
     categorias_unicas = [""] + sorted(list(set(f[0] for f in datos_completos if f[0])))
     try: valor_dolar_actual = float(hoja_inventario.cell(CELDA_DOLAR_FILA, CELDA_DOLAR_COL).value)
     except: valor_dolar_actual = 10.00
 
+    # Tabs de Navegación
     tab_list = ["🛒 Punto de Venta", "📦 Traspasos"]
     if st.session_state.cargo == "JEFE": tab_list.append("⚙️ Panel de Jefe")
     tabs = st.tabs(tab_list)
@@ -154,6 +160,7 @@ else:
                     st.session_state.ultimo_recibo_html = ""
                     st.rerun()
             with c_btn2:
+                # BOTÓN DE DESCARGA DEL RECIBO HTML
                 fecha_str_descarga = datetime.now().strftime("%Y%m%d_%H%M%S")
                 st.download_button(
                     label="📥 Descargar Recibo (HTML)",
@@ -168,6 +175,7 @@ else:
             with col_izq:
                 st.subheader("Buscador de Productos")
                 
+                # Filtros en Cascada
                 f_cat, f_mar = st.columns(2)
                 with f_cat: cat_sel = st.selectbox("Categoría:", categorias_unicas)
                 with f_mar: 
@@ -258,6 +266,7 @@ else:
                             ])
                         hoja_historial.append_rows(filas_h)
                         
+                        # --- RECIBO HTML ACTUALIZADO (MUESTRA BS Y $US) ---
                         html_recibo = f"""
                         <div style="font-family:'Courier New', monospace; background:white; color:black; width:100%; max-width:350px; margin:0 auto; padding:20px; border-radius:5px; border: 1px solid #ccc;">
                             <h2 style="text-align:center; margin-bottom:5px;">{st.session_state.tienda}</h2>
@@ -349,6 +358,7 @@ else:
         with tabs[2]:
             st.header("⚙️ Panel de Control - Administrador")
             
+            # --- SECCIÓN: DÓLAR Y PRECIOS ---
             with st.expander("💰 Configuración de Precios", expanded=True):
                 col_d1, col_d2 = st.columns(2)
                 with col_d1:
@@ -372,6 +382,7 @@ else:
                             hoja_inventario.update_cell(idx_c, COL_PRECIO_ADICIONAL, n_ext)
                             st.success("Precios guardados."); st.session_state.datos_completos = cargar_datos_locales(); st.rerun()
 
+            # --- SECCIÓN: AJUSTES DIRECTOS ---
             with st.expander("📦 Ajuste Directo de Stock"):
                 p_aj = st.selectbox("Modificar inventario de:", [""] + [f[2] for f in datos_completos if len(f)>2], key="aj_p")
                 if p_aj:
@@ -410,6 +421,7 @@ else:
                         hoja_historial.append_row([datetime.now().strftime("%Y-%m-%d %H:%M:%S"), st.session_state.tienda, p_aj, f"-{c_aj} (STOCK CORREGIDO)", st.session_state.usuario, 0,0,0])
                         st.success("Retirado con éxito."); st.session_state.datos_completos = cargar_datos_locales(); st.rerun()
 
+            # --- SECCIÓN: REPORTES ---
             with st.expander("📊 Reportes y Extractos Bancarios", expanded=True):
                 st.subheader("Extracto Global (Todas las Tiendas)")
                 if st.button("🌍 Generar Extracto Global de Hoy", type="primary"):
@@ -485,6 +497,7 @@ else:
                     st.text_area("Previsualización:", txt, height=250)
                     st.download_button("📥 Descargar Reporte TXT", txt, f"Reporte_Ventas_{t_rep}_{hoy}_{ahora}.txt")
 
+            # --- CIERRE DE MES ---
             with st.expander("⚠️ Cierre de Mes"):
                 if st.button("Archivar Mes Actual e Iniciar Nuevo Historial", type="secondary"):
                     mes, anio = obtener_mes_actual(); nombre = f"Historial_{mes}_{anio}"
