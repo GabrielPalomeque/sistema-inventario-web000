@@ -147,20 +147,28 @@ if not st.session_state.logged_in:
             submit_btn = st.form_submit_button("ACCEDER", use_container_width=True)
             
             if submit_btn:
-                usuarios_db = hoja_usuarios.get_all_records()
-                encontrado = False
-                for fila in usuarios_db:
-                    if str(fila['Usuario']) == user_input and str(fila['Password']) == pass_input:
-                        cargo = str(fila.get('Cargo', '')).upper()
-                        
-                        st.session_state.usuario = user_input
-                        st.session_state.cargo = cargo
-                        st.session_state.tienda = tienda_input
-                        st.session_state.col_index = COLUMNAS_TIENDA[tienda_input]
-                        st.session_state.logged_in = True
-                        encontrado = True
+                try:
+                    usuarios_db = hoja_usuarios.get_all_records()
+                    encontrado = False
+                    for fila in usuarios_db:
+                        if str(fila['Usuario']) == user_input and str(fila['Password']) == pass_input:
+                            cargo = str(fila.get('Cargo', '')).upper()
+                            
+                            # REGLA ACTUALIZADA: Cualquiera puede entrar a cualquier sucursal con sus credenciales correctas
+                            st.session_state.usuario = user_input
+                            st.session_state.cargo = cargo
+                            st.session_state.tienda = tienda_input
+                            st.session_state.col_index = COLUMNAS_TIENDA[tienda_input]
+                            st.session_state.logged_in = True
+                            encontrado = True
+                            break
+                            
+                    if encontrado:
                         st.rerun()
-                if not encontrado: st.error("Usuario o contraseña incorrectos")
+                    else:
+                        st.error("Usuario o contraseña incorrectos")
+                except Exception as e:
+                    st.error(f"Error al conectar con la base de usuarios: {e}")
 
 # --- 2. PANTALLA PRINCIPAL DEL SISTEMA ---
 else:
@@ -324,10 +332,10 @@ else:
                     st.info("El carrito está vacío.")
                 else:
                     for idx, item in enumerate(st.session_state.carrito):
+                        # AQUI ESTA LA FUNCIÓN DE EDITAR Y ELIMINAR ESPECÍFICAMENTE EN LA WEB
                         c_prod, c_cant, c_bs, c_del = st.columns([4, 2, 2, 1])
                         c_prod.markdown(f"**{item['producto']}**")
                         
-                        # Edición directa de cantidad
                         nueva_cant = c_cant.number_input("Cant", min_value=1, value=item['cantidad'], key=f"edit_cant_{idx}")
                         if nueva_cant != item['cantidad']:
                             f_idx = obtener_fila_producto(datos_completos, item['producto'])
@@ -363,6 +371,7 @@ else:
                         st.rerun()
 
                     # BLOQUE DE PAGOS Y FINALIZACIÓN
+                    st.markdown("---")
                     st.markdown("### 💳 Finalizar Operación")
                     tipo_op = st.radio("Selecciona el tipo de operación:", ["Venta Normal", "Venta con Observación", "Cotización"], horizontal=True)
                     
@@ -407,93 +416,96 @@ else:
                             st.session_state.carrito = []
                             st.rerun()
                     else:
-                        with st.expander("💳 Seleccionar Método de Pago y Vender", expanded=True):
-                            c_f1, c_f2 = st.columns(2)
-                            btn_efe = c_f1.button("💵 100% EFECTIVO", use_container_width=True)
-                            btn_qr = c_f2.button("📱 100% QR", use_container_width=True)
-                            
-                            st.write("--- **O Pago Mixto** ---")
-                            m_efe = st.number_input("Monto Efectivo (Bs)", 0.0)
-                            m_qr = st.number_input("Monto QR (Bs)", 0.0)
-                            m_usd = st.number_input("Monto Dólares ($us)", 0.0)
-                            btn_mixto = st.button("✅ Confirmar Pago Mixto", use_container_width=True)
+                        st.markdown("#### Selecciona el Método de Pago")
+                        c_f1, c_f2 = st.columns(2)
+                        btn_efe = c_f1.button("💵 100% EFECTIVO", use_container_width=True)
+                        btn_qr = c_f2.button("📱 100% QR", use_container_width=True)
+                        
+                        st.write("--- **Opciones de Pago Mixto** ---")
+                        c_m1, c_m2, c_m3 = st.columns(3)
+                        with c_m1: m_efe = st.number_input("Monto Efectivo (Bs)", 0.0)
+                        with c_m2: m_qr = st.number_input("Monto QR (Bs)", 0.0)
+                        with c_m3: m_usd = st.number_input("Monto Dólares ($us)", 0.0)
+                        
+                        btn_mixto = st.button("✅ Confirmar Pago Mixto", use_container_width=True)
 
-                            metodo_final = ""
-                            p_efe = 0.0; p_qr = 0.0; p_usd = 0.0
-                            
-                            if btn_efe: metodo_final = "EFECTIVO"; p_efe = t_real
-                            elif btn_qr: metodo_final = "QR"; p_qr = t_real
-                            elif btn_mixto:
-                                if round(m_efe + m_qr + (m_usd * valor_dolar_actual), 2) < round(t_real, 2):
-                                    st.error("El pago mixto es menor al Total a Cobrar.")
-                                else:
-                                    metodo_final = f"MIXTO (Efe: {m_efe:.2f} Bs | QR: {m_qr:.2f} Bs | USD: {m_usd:.2f} $us)"
-                                    p_efe = m_efe; p_qr = m_qr; p_usd = m_usd
+                        metodo_final = ""
+                        p_efe = 0.0; p_qr = 0.0; p_usd = 0.0
+                        
+                        if btn_efe: metodo_final = "EFECTIVO"; p_efe = t_real
+                        elif btn_qr: metodo_final = "QR"; p_qr = t_real
+                        elif btn_mixto:
+                            if round(m_efe + m_qr + (m_usd * valor_dolar_actual), 2) < round(t_real, 2):
+                                st.error("El pago mixto es menor al Total a Cobrar.")
+                            else:
+                                metodo_final = f"MIXTO (Efe: {m_efe:.2f} Bs | QR: {m_qr:.2f} Bs | USD: {m_usd:.2f} $us)"
+                                p_efe = m_efe; p_qr = m_qr; p_usd = m_usd
 
-                            if metodo_final != "":
-                                if tipo_op == "Venta con Observación" and not obs_texto:
-                                    st.error("Debes escribir una observación.")
-                                else:
-                                    # PROCEDER A GUARDAR LA VENTA
-                                    fecha_h = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                                    filas_h = []
-                                    for item in st.session_state.carrito:
-                                        idx = obtener_fila_producto(datos_completos, item["producto"])
-                                        s_act = int(hoja_inventario.cell(idx, st.session_state.col_index).value or 0)
-                                        hoja_inventario.update_cell(idx, st.session_state.col_index, s_act - item["cantidad"])
-                                        
-                                        ratio = item['subtotal_cobrado'] / t_real if t_real > 0 else 0
-                                        i_qr = round(p_qr * ratio, 2)
-                                        i_efe = round(p_efe * ratio, 2)
-                                        i_usd = round(p_usd * ratio, 2)
-                                        i_mixto = round(i_qr + i_efe + (i_usd * valor_dolar_actual), 2)
-                                        
-                                        txt_mov = f"-{item['cantidad']} (VENTA)"
-                                        if obs_texto: txt_mov += f" [OBS: {obs_texto}]"
-                                        txt_mov += f" [PAGO: {metodo_final}]"
-                                        
-                                        filas_h.append([
-                                            fecha_h, st.session_state.tienda, item["producto"], txt_mov, st.session_state.usuario,
-                                            round(item['subtotal_ref'], 2), round(item['diferencia'], 2), round(item['subtotal_cobrado'], 2),
-                                            i_qr, i_efe, i_mixto, i_usd
-                                        ])
-                                    hoja_historial.append_rows(filas_h)
+                        if metodo_final != "":
+                            if tipo_op == "Venta con Observación" and not obs_texto:
+                                st.error("Debes escribir una observación.")
+                            else:
+                                # PROCEDER A GUARDAR LA VENTA Y LAS 12 COLUMNAS
+                                fecha_h = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                                filas_h = []
+                                for item in st.session_state.carrito:
+                                    idx = obtener_fila_producto(datos_completos, item["producto"])
+                                    s_act = int(hoja_inventario.cell(idx, st.session_state.col_index).value or 0)
+                                    hoja_inventario.update_cell(idx, st.session_state.col_index, s_act - item["cantidad"])
                                     
-                                    # RECIBO HTML
-                                    html_venta = f"""
-                                    <div style="font-family:'Courier New', monospace; background:white; color:black; width:100%; max-width:400px; margin:0 auto; padding:20px; border-radius:5px; border: 1px solid #ccc;">
-                                        <h2 style="text-align:center;">{st.session_state.tienda}</h2>
-                                        <div style="text-align:center; font-size:12px; color:#666;">COMPROBANTE DE VENTA<br>Fecha: {fecha_h}<br>Cajero: {st.session_state.usuario}<br>Método de Pago: <strong>{metodo_final}</strong></div>
-                                        <hr style="border-top:1px dashed #999;">
-                                        <table style="width:100%; font-size:13px; border-collapse:collapse;">
-                                            <tr style="background:#f0f0f0; border-bottom:2px solid #555;"><th>Cant</th><th>Producto</th><th style="text-align:right;">P.Unit Bs</th><th style="text-align:right;">P.Unit $us</th><th style="text-align:right;">Subt. Bs</th><th style="text-align:right;">Subt. $us</th></tr>
-                                    """
-                                    for i in st.session_state.carrito:
-                                        pu_bs = i['subtotal_cobrado'] / i['cantidad'] if i['cantidad']>0 else 0
-                                        pu_usd = i['subtotal_usd'] / i['cantidad'] if i['cantidad']>0 else 0
-                                        html_venta += f"<tr><td style='text-align:center; border:1px solid #aaa;'>{i['cantidad']}</td><td style='border:1px solid #aaa;'>{i['producto']}</td><td style='text-align:right; border:1px solid #aaa;'>{pu_bs:.2f}</td><td style='text-align:right; border:1px solid #aaa;'>{pu_usd:.2f}</td><td style='text-align:right; border:1px solid #aaa;'>{i['subtotal_cobrado']:.2f}</td><td style='text-align:right; border:1px solid #aaa;'>{i['subtotal_usd']:.2f}</td></tr>"
-                                    html_venta += f"""
-                                        </table><hr style="border-top:1px dashed #999;">
-                                        <table style="width:100%; font-size:16px; font-weight:bold;">
-                                            <tr><td>TOTAL Bs:</td><td style="text-align:right;">{t_real:.2f}</td></tr>
-                                            <tr><td>TOTAL $us:</td><td style="text-align:right;">{t_usd:.2f}</td></tr>
-                                        </table>
-                                        <div style="text-align:center; font-size:12px; color:#666; margin-top:15px;">Teléfonos de referencia: 75295017 - 78851301<br>¡Gracias por su preferencia!<br>Vuelva pronto.</div>
-                                    </div>
-                                    """
+                                    ratio = item['subtotal_cobrado'] / t_real if t_real > 0 else 0
+                                    i_qr = round(p_qr * ratio, 2)
+                                    i_efe = round(p_efe * ratio, 2)
+                                    i_usd = round(p_usd * ratio, 2)
+                                    i_mixto = round(i_qr + i_efe + (i_usd * valor_dolar_actual), 2)
                                     
-                                    # Guardar en Drive
-                                    mes, anio = obtener_mes_actual()
-                                    t_segura = st.session_state.tienda.replace(" ", "_")
-                                    c_mes = f"COMPROBANTES_{mes.upper()}_{anio}"
-                                    ruta_tmp = f"Factura_{t_segura}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.html"
-                                    with open(ruta_tmp, "w", encoding="utf-8") as f: f.write(html_venta)
-                                    subir_archivo_drive(ruta_tmp, "COMPROBANTES", st.session_state.tienda, c_mes)
+                                    txt_mov = f"-{item['cantidad']} (VENTA)"
+                                    if obs_texto: txt_mov += f" [OBS: {obs_texto}]"
+                                    txt_mov += f" [PAGO: {metodo_final}]"
+                                    
+                                    # SE GUARDAN LAS 12 COLUMNAS EXACTAS QUE PEDISTE
+                                    filas_h.append([
+                                        fecha_h, st.session_state.tienda, item["producto"], txt_mov, st.session_state.usuario,
+                                        round(item['subtotal_ref'], 2), round(item['diferencia'], 2), round(item['subtotal_cobrado'], 2),
+                                        i_qr, i_efe, i_mixto, i_usd
+                                    ])
+                                hoja_historial.append_rows(filas_h)
+                                
+                                # RECIBO HTML
+                                html_venta = f"""
+                                <div style="font-family:'Courier New', monospace; background:white; color:black; width:100%; max-width:400px; margin:0 auto; padding:20px; border-radius:5px; border: 1px solid #ccc;">
+                                    <h2 style="text-align:center;">{st.session_state.tienda}</h2>
+                                    <div style="text-align:center; font-size:12px; color:#666;">COMPROBANTE DE VENTA<br>Fecha: {fecha_h}<br>Cajero: {st.session_state.usuario}<br>Método de Pago: <strong>{metodo_final}</strong></div>
+                                    <hr style="border-top:1px dashed #999;">
+                                    <table style="width:100%; font-size:13px; border-collapse:collapse;">
+                                        <tr style="background:#f0f0f0; border-bottom:2px solid #555;"><th>Cant</th><th>Producto</th><th style="text-align:right;">P.Unit Bs</th><th style="text-align:right;">P.Unit $us</th><th style="text-align:right;">Subt. Bs</th><th style="text-align:right;">Subt. $us</th></tr>
+                                """
+                                for i in st.session_state.carrito:
+                                    pu_bs = i['subtotal_cobrado'] / i['cantidad'] if i['cantidad']>0 else 0
+                                    pu_usd = i['subtotal_usd'] / i['cantidad'] if i['cantidad']>0 else 0
+                                    html_venta += f"<tr><td style='text-align:center; border:1px solid #aaa;'>{i['cantidad']}</td><td style='border:1px solid #aaa;'>{i['producto']}</td><td style='text-align:right; border:1px solid #aaa;'>{pu_bs:.2f}</td><td style='text-align:right; border:1px solid #aaa;'>{pu_usd:.2f}</td><td style='text-align:right; border:1px solid #aaa;'>{i['subtotal_cobrado']:.2f}</td><td style='text-align:right; border:1px solid #aaa;'>{i['subtotal_usd']:.2f}</td></tr>"
+                                html_venta += f"""
+                                    </table><hr style="border-top:1px dashed #999;">
+                                    <table style="width:100%; font-size:16px; font-weight:bold;">
+                                        <tr><td>TOTAL Bs:</td><td style="text-align:right;">{t_real:.2f}</td></tr>
+                                        <tr><td>TOTAL $us:</td><td style="text-align:right;">{t_usd:.2f}</td></tr>
+                                    </table>
+                                    <div style="text-align:center; font-size:12px; color:#666; margin-top:15px;">Teléfonos de referencia: 75295017 - 78851301<br>¡Gracias por su preferencia!<br>Vuelva pronto.</div>
+                                </div>
+                                """
+                                
+                                # Guardar en Drive
+                                mes, anio = obtener_mes_actual()
+                                t_segura = st.session_state.tienda.replace(" ", "_")
+                                c_mes = f"COMPROBANTES_{mes.upper()}_{anio}"
+                                ruta_tmp = f"Factura_{t_segura}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.html"
+                                with open(ruta_tmp, "w", encoding="utf-8") as f: f.write(html_venta)
+                                subir_archivo_drive(ruta_tmp, "COMPROBANTES", st.session_state.tienda, c_mes)
 
-                                    st.session_state.ultimo_recibo_html = html_venta
-                                    st.session_state.carrito = []
-                                    st.session_state.datos_completos = cargar_datos_locales()
-                                    st.rerun()
+                                st.session_state.ultimo_recibo_html = html_venta
+                                st.session_state.carrito = []
+                                st.session_state.datos_completos = cargar_datos_locales()
+                                st.rerun()
 
     # ==========================================================
     # TAB 2: TRASPASOS
