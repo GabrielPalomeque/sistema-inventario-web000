@@ -151,21 +151,15 @@ if not st.session_state.logged_in:
                 encontrado = False
                 for fila in usuarios_db:
                     if str(fila['Usuario']) == user_input and str(fila['Password']) == pass_input:
-                        tienda_asignada = str(fila.get('Tienda', '')).strip()
                         cargo = str(fila.get('Cargo', '')).upper()
                         
-                        if tienda_asignada == tienda_input or cargo == "JEFE":
-                            st.session_state.usuario = user_input
-                            st.session_state.cargo = cargo
-                            st.session_state.tienda = tienda_input
-                            st.session_state.col_index = COLUMNAS_TIENDA[tienda_input]
-                            st.session_state.logged_in = True
-                            encontrado = True
-                            st.rerun()
-                        else:
-                            st.error(f"Acceso Denegado. El usuario '{user_input}' está asignado a: {tienda_asignada}")
-                            encontrado = True
-                            break
+                        st.session_state.usuario = user_input
+                        st.session_state.cargo = cargo
+                        st.session_state.tienda = tienda_input
+                        st.session_state.col_index = COLUMNAS_TIENDA[tienda_input]
+                        st.session_state.logged_in = True
+                        encontrado = True
+                        st.rerun()
                 if not encontrado: st.error("Usuario o contraseña incorrectos")
 
 # --- 2. PANTALLA PRINCIPAL DEL SISTEMA ---
