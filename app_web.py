@@ -34,14 +34,17 @@ CELDA_DOLAR_COL = 9
 COL_PRECIO_USD = 10        
 COL_PRECIO_ADICIONAL = 11  
 
+# ID DE GOOGLE DRIVE 
 ID_CARPETA_BASE_DRIVE = "1Dm99RvDStOaWYJ5dxDgiFz9SpyzsNbwv"
 
 # --- CONEXIÓN A GOOGLE SHEETS Y DRIVE (CACHEADO) ---
 @st.cache_resource
 def conectar_servicios():
     scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
+    # En Render, asegúrate de que credenciales.json esté subido o en tus variables de entorno
     creds = ServiceAccountCredentials.from_json_keyfile_name("credenciales.json", scope)
     cliente = gspread.authorize(creds)
+    # Cambia el enlace si tu hoja principal es diferente
     archivo = cliente.open_by_url("https://docs.google.com/spreadsheets/d/1Mfr5GShbSnToWSSzZohsfLQe9-LX4-zvTS1MY9WflIU/edit")
     
     try:
@@ -154,7 +157,6 @@ if not st.session_state.logged_in:
                         if str(fila['Usuario']) == user_input and str(fila['Password']) == pass_input:
                             cargo = str(fila.get('Cargo', '')).upper()
                             
-                            # REGLA ACTUALIZADA: Cualquiera puede entrar a cualquier sucursal con sus credenciales correctas
                             st.session_state.usuario = user_input
                             st.session_state.cargo = cargo
                             st.session_state.tienda = tienda_input
@@ -200,12 +202,12 @@ else:
     # ==========================================================
     with tabs[0]:
         if st.session_state.ultimo_recibo_html != "":
-            st.success("🎉 ¡Operación registrada exitosamente!")
-            components.html(st.session_state.ultimo_recibo_html, height=500, scrolling=True)
+            st.success("🎉 ¡Operación finalizada y guardada en el historial/drive!")
+            components.html(st.session_state.ultimo_recibo_html, height=550, scrolling=True)
             
             c_btn1, c_btn2 = st.columns(2)
             with c_btn1:
-                if st.button("⬅️ Volver a la Tienda", type="primary", use_container_width=True):
+                if st.button("⬅️ Iniciar Nueva Venta", type="primary", use_container_width=True):
                     st.session_state.ultimo_recibo_html = ""
                     st.rerun()
             with c_btn2:
@@ -220,7 +222,7 @@ else:
         else:
             col_izq, col_der = st.columns([5, 5])
             
-            # PARTE IZQUIERDA - BUSCADOR
+            # --- PARTE IZQUIERDA: BUSCADOR Y CARRITO ---
             with col_izq:
                 st.subheader("Buscador de Productos")
                 
@@ -274,7 +276,6 @@ else:
                             st.rerun()
 
                 st.divider()
-                # --- CARGAR COTIZACIÓN HTML ---
                 st.subheader("📂 Cargar Cotización Pasada")
                 cot_file = st.file_uploader("Sube un archivo .html de cotización:", type=["html"])
                 if cot_file is not None:
@@ -324,18 +325,18 @@ else:
                                 st.warning("Algunos productos ya no existen en la base de datos: " + ", ".join(prods_no_enc))
                             st.rerun()
 
-
-            # PARTE DERECHA - CARRITO Y COBROS
+            # --- PARTE DERECHA: CARRITO Y COBRO ---
             with col_der:
                 st.subheader("🛒 Carrito Actual")
                 if not st.session_state.carrito:
                     st.info("El carrito está vacío.")
                 else:
+                    # GESTIÓN INDIVIDUAL DEL CARRITO (Editar / Eliminar específico)
                     for idx, item in enumerate(st.session_state.carrito):
-                        # AQUI ESTA LA FUNCIÓN DE EDITAR Y ELIMINAR ESPECÍFICAMENTE EN LA WEB
                         c_prod, c_cant, c_bs, c_del = st.columns([4, 2, 2, 1])
                         c_prod.markdown(f"**{item['producto']}**")
                         
+                        # Edición directa de cantidad
                         nueva_cant = c_cant.number_input("Cant", min_value=1, value=item['cantidad'], key=f"edit_cant_{idx}")
                         if nueva_cant != item['cantidad']:
                             f_idx = obtener_fila_producto(datos_completos, item['producto'])
@@ -353,6 +354,8 @@ else:
                                 st.rerun()
                                 
                         c_bs.write(f"{item['subtotal_cobrado']:.2f} Bs")
+                        
+                        # Eliminar producto específico
                         if c_del.button("🗑️", key=f"del_{idx}"):
                             st.session_state.carrito.pop(idx)
                             st.rerun()
@@ -366,18 +369,18 @@ else:
                     col_t1.metric("TOTAL REFERENCIAL (Bs)", f"{t_ref:.2f}")
                     col_t2.metric("TOTAL A COBRAR (Bs)", f"{t_real:.2f}", f"${t_usd:.2f} USD", delta_color="off")
                     
-                    if st.button("🗑️ Vaciar Carrito"):
+                    if st.button("🗑️ Vaciar Todo el Carrito", use_container_width=True):
                         st.session_state.carrito = []
                         st.rerun()
 
-                    # BLOQUE DE PAGOS Y FINALIZACIÓN
+                    # --- BLOQUE DE PAGOS Y FINALIZACIÓN DE VENTA ---
                     st.markdown("---")
-                    st.markdown("### 💳 Finalizar Operación")
-                    tipo_op = st.radio("Selecciona el tipo de operación:", ["Venta Normal", "Venta con Observación", "Cotización"], horizontal=True)
+                    st.subheader("💳 Finalizar Operación")
                     
+                    tipo_op = st.radio("Selecciona el tipo de operación:", ["Venta Normal", "Venta con Observación", "Cotización"], horizontal=True)
                     obs_texto = ""
                     if tipo_op == "Venta con Observación":
-                        obs_texto = st.text_input("⚠️ Escribe la observación:")
+                        obs_texto = st.text_input("⚠️ Escribe la observación obligatoria:")
 
                     if tipo_op == "Cotización":
                         if st.button("📝 GENERAR COTIZACIÓN", type="primary", use_container_width=True):
@@ -385,7 +388,7 @@ else:
                             html_cot = f"""
                             <div style="font-family:'Courier New', monospace; background:white; color:black; width:100%; max-width:400px; margin:0 auto; padding:20px; border-radius:5px; border: 2px dashed #FF9800;">
                                 <h2 style="text-align:center; color:#E65100;">{st.session_state.tienda}</h2>
-                                <div style="text-align:center; font-size:12px; color:#666;">COTIZACIÓN DE PRECIOS<br>Fecha: {fecha_h}<br>Cajero: {st.session_state.usuario}</div>
+                                <div style="text-align:center; font-size:12px; color:#666;">COTIZACIÓN DE PRECIOS<br>Fecha: {fecha_h}<br>Atendido por: {st.session_state.usuario}</div>
                                 <hr style="border-top:1px dashed #999;">
                                 <table style="width:100%; font-size:13px; border-collapse:collapse;">
                                     <tr style="background:#f0f0f0; border-bottom:2px solid #555;"><th>Cant</th><th>Producto</th><th style="text-align:right;">P.Unit Bs</th><th style="text-align:right;">P.Unit $us</th><th style="text-align:right;">Subt. Bs</th><th style="text-align:right;">Subt. $us</th></tr>
@@ -400,11 +403,10 @@ else:
                                     <tr><td>TOTAL Bs:</td><td style="text-align:right;">{t_real:.2f}</td></tr>
                                     <tr><td>TOTAL $us:</td><td style="text-align:right;">{t_usd:.2f}</td></tr>
                                 </table>
-                                <div style="text-align:center; font-size:12px; color:#D32F2F; font-weight:bold; margin-top:15px;">Teléfonos de referencia: 75295017 - 78851301<br>DOCUMENTO NO VÁLIDO COMO RECIBO<br>*Precios sujetos a cambio*</div>
+                                <div style="text-align:center; font-size:12px; color:#D32F2F; font-weight:bold; margin-top:15px;">Teléfonos de ref: 75295017 - 78851301<br>DOCUMENTO NO VÁLIDO COMO RECIBO<br>*Precios sujetos a cambio*</div>
                             </div>
                             """
                             
-                            # Guardado en Drive
                             mes, anio = obtener_mes_actual()
                             t_segura = st.session_state.tienda.replace(" ", "_")
                             c_mes = f"COTIZACIONES_{mes.upper()}_{anio}"
@@ -421,13 +423,13 @@ else:
                         btn_efe = c_f1.button("💵 100% EFECTIVO", use_container_width=True)
                         btn_qr = c_f2.button("📱 100% QR", use_container_width=True)
                         
-                        st.write("--- **Opciones de Pago Mixto** ---")
-                        c_m1, c_m2, c_m3 = st.columns(3)
-                        with c_m1: m_efe = st.number_input("Monto Efectivo (Bs)", 0.0)
-                        with c_m2: m_qr = st.number_input("Monto QR (Bs)", 0.0)
-                        with c_m3: m_usd = st.number_input("Monto Dólares ($us)", 0.0)
-                        
-                        btn_mixto = st.button("✅ Confirmar Pago Mixto", use_container_width=True)
+                        with st.expander("💸 Opción: Pago Mixto (Combinado)", expanded=False):
+                            st.write("Ingresa los montos exactos recibidos en cada método:")
+                            c_m1, c_m2, c_m3 = st.columns(3)
+                            with c_m1: m_efe = st.number_input("Efectivo (Bs)", 0.0)
+                            with c_m2: m_qr = st.number_input("QR (Bs)", 0.0)
+                            with c_m3: m_usd = st.number_input("Dólares ($us)", 0.0)
+                            btn_mixto = st.button("✅ Procesar Pago Mixto", use_container_width=True)
 
                         metodo_final = ""
                         p_efe = 0.0; p_qr = 0.0; p_usd = 0.0
@@ -436,16 +438,15 @@ else:
                         elif btn_qr: metodo_final = "QR"; p_qr = t_real
                         elif btn_mixto:
                             if round(m_efe + m_qr + (m_usd * valor_dolar_actual), 2) < round(t_real, 2):
-                                st.error("El pago mixto es menor al Total a Cobrar.")
+                                st.error(f"El pago mixto es menor al Total a Cobrar.")
                             else:
                                 metodo_final = f"MIXTO (Efe: {m_efe:.2f} Bs | QR: {m_qr:.2f} Bs | USD: {m_usd:.2f} $us)"
                                 p_efe = m_efe; p_qr = m_qr; p_usd = m_usd
 
                         if metodo_final != "":
                             if tipo_op == "Venta con Observación" and not obs_texto:
-                                st.error("Debes escribir una observación.")
+                                st.error("Debes escribir una observación obligatoria.")
                             else:
-                                # PROCEDER A GUARDAR LA VENTA Y LAS 12 COLUMNAS
                                 fecha_h = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                                 filas_h = []
                                 for item in st.session_state.carrito:
@@ -453,6 +454,7 @@ else:
                                     s_act = int(hoja_inventario.cell(idx, st.session_state.col_index).value or 0)
                                     hoja_inventario.update_cell(idx, st.session_state.col_index, s_act - item["cantidad"])
                                     
+                                    # Proporción matemática para las 12 columnas exactas
                                     ratio = item['subtotal_cobrado'] / t_real if t_real > 0 else 0
                                     i_qr = round(p_qr * ratio, 2)
                                     i_efe = round(p_efe * ratio, 2)
@@ -463,7 +465,6 @@ else:
                                     if obs_texto: txt_mov += f" [OBS: {obs_texto}]"
                                     txt_mov += f" [PAGO: {metodo_final}]"
                                     
-                                    # SE GUARDAN LAS 12 COLUMNAS EXACTAS QUE PEDISTE
                                     filas_h.append([
                                         fecha_h, st.session_state.tienda, item["producto"], txt_mov, st.session_state.usuario,
                                         round(item['subtotal_ref'], 2), round(item['diferencia'], 2), round(item['subtotal_cobrado'], 2),
@@ -475,7 +476,7 @@ else:
                                 html_venta = f"""
                                 <div style="font-family:'Courier New', monospace; background:white; color:black; width:100%; max-width:400px; margin:0 auto; padding:20px; border-radius:5px; border: 1px solid #ccc;">
                                     <h2 style="text-align:center;">{st.session_state.tienda}</h2>
-                                    <div style="text-align:center; font-size:12px; color:#666;">COMPROBANTE DE VENTA<br>Fecha: {fecha_h}<br>Cajero: {st.session_state.usuario}<br>Método de Pago: <strong>{metodo_final}</strong></div>
+                                    <div style="text-align:center; font-size:12px; color:#666;">COMPROBANTE DE VENTA<br>Fecha: {fecha_h}<br>Cajero: {st.session_state.usuario}<br>Método: <strong>{metodo_final}</strong></div>
                                     <hr style="border-top:1px dashed #999;">
                                     <table style="width:100%; font-size:13px; border-collapse:collapse;">
                                         <tr style="background:#f0f0f0; border-bottom:2px solid #555;"><th>Cant</th><th>Producto</th><th style="text-align:right;">P.Unit Bs</th><th style="text-align:right;">P.Unit $us</th><th style="text-align:right;">Subt. Bs</th><th style="text-align:right;">Subt. $us</th></tr>
@@ -490,11 +491,10 @@ else:
                                         <tr><td>TOTAL Bs:</td><td style="text-align:right;">{t_real:.2f}</td></tr>
                                         <tr><td>TOTAL $us:</td><td style="text-align:right;">{t_usd:.2f}</td></tr>
                                     </table>
-                                    <div style="text-align:center; font-size:12px; color:#666; margin-top:15px;">Teléfonos de referencia: 75295017 - 78851301<br>¡Gracias por su preferencia!<br>Vuelva pronto.</div>
+                                    <div style="text-align:center; font-size:12px; color:#666; margin-top:15px;">Teléfonos de ref: 75295017 - 78851301<br>¡Gracias por su preferencia!<br>Vuelva pronto.</div>
                                 </div>
                                 """
                                 
-                                # Guardar en Drive
                                 mes, anio = obtener_mes_actual()
                                 t_segura = st.session_state.tienda.replace(" ", "_")
                                 c_mes = f"COMPROBANTES_{mes.upper()}_{anio}"
@@ -508,10 +508,10 @@ else:
                                 st.rerun()
 
     # ==========================================================
-    # TAB 2: TRASPASOS
+    # TAB 2: TRASPASOS Y ENVÍOS
     # ==========================================================
     with tabs[1]:
-        st.header("📦 Enviar Productos a otra Sucursal")
+        st.header("📦 Enviar Productos a otra Sucursal o Departamento")
         prods_totales = [""] + [f[2] for f in datos_completos if len(f)>2 and f[2]]
         prod_t = st.selectbox("Selecciona el producto:", prods_totales, key="tras_prod")
         
@@ -662,7 +662,6 @@ else:
                     </div>
                     """
                     
-                    # Drive upload
                     r_tmp = f"Extracto_{hoy}_{ahora}.html"
                     with open(r_tmp, "w", encoding="utf-8") as file: file.write(html_final)
                     subir_archivo_drive(r_tmp, "ENTRADAS Y SALIDAS", "", f"ENTRADAS_SALIDAS_{mes.upper()}_{anio}")
@@ -712,7 +711,6 @@ else:
                             txt += f"  ----------------------\n  💰 TOTAL COBRADO : {dat['t_cobrado']:.2f} Bs\n{'='*45}\n"
                         txt += f"\n📈 TOTAL PRODUCTOS VENDIDOS: {t_cant}\n🎯 GRAN TOTAL COBRADO EN CAJA: {t_cob_bs:.2f} Bs\n---------------------------------------------\n📱 TOTAL EN QR          : {t_qr:.2f} Bs\n💵 TOTAL EN EFECTIVO Bs : {t_efe_bs:.2f} Bs\n💵 TOTAL EN EFECTIVO $us: {t_efe_usd:.2f} $us\n"
 
-                    # Subir a Drive
                     mes, anio = obtener_mes_actual()
                     r_tmp = f"Reporte_Ventas_{t_rep.replace(' ','_')}_{hoy}_{ahora}.txt"
                     with open(r_tmp, "w", encoding="utf-8") as file: file.write(txt)
