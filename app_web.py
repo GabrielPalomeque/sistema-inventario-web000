@@ -47,15 +47,21 @@ COL_PRECIO_ADICIONAL = 11
 ID_CARPETA_BASE_DRIVE = "1Dm99RvDStOaWYJ5dxDgiFz9SpyzsNbwv"
 
 # ==============================================================================
-# CONEXIÓN A SERVICIOS DE GOOGLE (SHEETS Y DRIVE)
+# CONEXIÓN A SERVICIOS DE GOOGLE (ALTA OPTIMIZACIÓN CON CACHÉ)
 # ==============================================================================
 @st.cache_resource
 def conectar_servicios():
     scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
-    # Se espera que el archivo credenciales.json esté en la raíz del proyecto en Render
     creds = ServiceAccountCredentials.from_json_keyfile_name("credenciales.json", scope)
     cliente = gspread.authorize(creds)
-    archivo = cliente.open_by_url("https://docs.google.com/spreadsheets/d/1Mfr5GShbSnToWSSzZohsfLQe9-LX4-zvTS1MY9WflIU/edit")
+    
+    # ENLACE ACTUALIZADO A TU NUEVA HOJA DE DATOS
+    archivo = cliente.open_by_url("https://docs.google.com/spreadsheets/d/1UgwzHWwdgEm52RxgxNLOx5gSTyGBVIRWapkD9X-n4Hs/edit?usp=sharing")
+    
+    # Descargamos las referencias a las hojas UNA sola vez
+    h_inv = archivo.worksheet("Inventario")
+    h_hist = archivo.worksheet("Historial")
+    h_usu = archivo.worksheet("Usuarios")
     
     try:
         drive_srv = build('drive', 'v3', credentials=creds)
@@ -63,13 +69,10 @@ def conectar_servicios():
         drive_srv = None
         print(f"Error al conectar con Drive API: {e}")
         
-    return archivo, drive_srv
+    return drive_srv, h_inv, h_hist, h_usu
 
 try:
-    archivo, drive_service = conectar_servicios()
-    hoja_inventario = archivo.worksheet("Inventario")
-    hoja_historial = archivo.worksheet("Historial")
-    hoja_usuarios = archivo.worksheet("Usuarios")
+    drive_service, hoja_inventario, hoja_historial, hoja_usuarios = conectar_servicios()
 except Exception as e:
     st.error("🚨 Error Crítico al conectar con Google Sheets o Google Drive. Verifique sus credenciales y permisos.")
     st.code(traceback.format_exc())
@@ -132,14 +135,18 @@ if 'cargo' not in st.session_state: st.session_state.cargo = ""
 if 'tienda' not in st.session_state: st.session_state.tienda = ""
 if 'col_index' not in st.session_state: st.session_state.col_index = 0
 
-# Variables del Carrito y Lógica de Interfaz
 if 'carrito' not in st.session_state: st.session_state.carrito = []
 if 'ultimo_recibo_html' not in st.session_state: st.session_state.ultimo_recibo_html = ""
-if 'modal_abierto' not in st.session_state: st.session_state.modal_abierto = None # Puede ser "pagar", "obs", "envio", "traspaso"
+if 'modal_abierto' not in st.session_state: st.session_state.modal_abierto = None 
 if 'obs_temporal' not in st.session_state: st.session_state.obs_temporal = ""
 
+# Variables para control de precios bidireccionales Bs <--> $us
+if 'cobro_bs_input' not in st.session_state: st.session_state.cobro_bs_input = 0.0
+if 'cobro_usd_input' not in st.session_state: st.session_state.cobro_usd_input = 0.0
+if 'producto_actual' not in st.session_state: st.session_state.producto_actual = ""
+
 # ==============================================================================
-# FUNCIONES DE CARGA Y BÚSQUEDA DE DATOS LOCALES (OPTIMIZACIÓN WEB)
+# FUNCIONES DE CARGA DE DATOS EN MEMORIA 
 # ==============================================================================
 def cargar_datos_locales():
     try:
@@ -157,6 +164,13 @@ def cargar_datos_locales():
 if 'datos_completos' not in st.session_state: 
     st.session_state.datos_completos = cargar_datos_locales()
 
+# Guardamos el dólar en memoria para no consultarlo por cada clic en la página
+if 'valor_dolar_actual' not in st.session_state:
+    try:
+        st.session_state.valor_dolar_actual = float(hoja_inventario.cell(CELDA_DOLAR_FILA, CELDA_DOLAR_COL).value)
+    except:
+        st.session_state.valor_dolar_actual = 10.00
+
 def obtener_fila_producto(datos_completos, nombre_producto):
     nombre_normalizado = normalizar_texto(nombre_producto)
     for i, fila in enumerate(datos_completos):
@@ -164,8 +178,28 @@ def obtener_fila_producto(datos_completos, nombre_producto):
             return i + 2 
     return -1
 
+def deshacer_ultimo():
+    if st.session_state.carrito:
+        st.session_state.carrito.pop()
+
+def vaciar_carrito():
+    st.session_state.carrito = []
+    st.session_state.modal_abierto = None
+
+# --- FUNCIONES DE SINCRONIZACIÓN DE CAMPOS ---
+def bs_modificado():
+    """Se llama cuando el usuario cambia el campo de Bolivianos"""
+    if st.session_state.valor_dolar_actual > 0:
+        st.session_state.cobro_usd_input = st.session_state.cobro_bs_input / st.session_state.valor_dolar_actual
+
+def usd_modificado():
+    """Se llama cuando el usuario cambia el campo de Dólares"""
+    if st.session_state.valor_dolar_actual > 0:
+        st.session_state.cobro_bs_input = st.session_state.cobro_usd_input * st.session_state.valor_dolar_actual
+
+
 # ==============================================================================
-# MÓDULO 1: SISTEMA DE LOGIN (CON ACCESO UNIVERSAL)
+# MÓDULO 1: SISTEMA DE LOGIN 
 # ==============================================================================
 if not st.session_state.logged_in:
     st.markdown("<h1 style='text-align: center; color: #1976D2;'>🛒 Sistema POS Web - Acceso</h1>", unsafe_allow_html=True)
@@ -194,7 +228,6 @@ if not st.session_state.logged_in:
                             if str(fila['Usuario']).strip() == user_input.strip() and str(fila['Password']).strip() == pass_input.strip():
                                 cargo = str(fila.get('Cargo', '')).upper()
                                 
-                                # Aplicando la regla estricta que solicitaste: Cualquier usuario puede entrar a cualquier sucursal.
                                 st.session_state.usuario = user_input.strip()
                                 st.session_state.cargo = cargo
                                 st.session_state.tienda = tienda_input
@@ -211,12 +244,9 @@ if not st.session_state.logged_in:
                         st.error(f"Error de conexión con la base de datos de usuarios: {e}")
 
 # ==============================================================================
-# MÓDULO 2: INTERFAZ PRINCIPAL DEL SISTEMA (SI EL LOGIN ES EXITOSO)
+# MÓDULO 2: INTERFAZ PRINCIPAL DEL SISTEMA 
 # ==============================================================================
 else:
-    # --------------------------------------------------------------------------
-    # SIDEBAR: INFORMACIÓN DEL USUARIO Y OPCIONES GENERALES
-    # --------------------------------------------------------------------------
     st.sidebar.markdown(f"## 🏬 {st.session_state.tienda}")
     st.sidebar.markdown("---")
     st.sidebar.markdown(f"👤 **Cajero Activo:** {st.session_state.usuario}")
@@ -224,9 +254,12 @@ else:
     st.sidebar.markdown("---")
     
     if st.sidebar.button("🔄 Forzar Actualización de Datos", use_container_width=True):
-        with st.spinner("Sincronizando con Google Sheets..."):
+        with st.spinner("Sincronizando Inventario y Precios con Google Sheets..."):
             st.session_state.datos_completos = cargar_datos_locales()
-        st.sidebar.success("✅ Base de datos sincronizada.")
+            try:
+                st.session_state.valor_dolar_actual = float(hoja_inventario.cell(CELDA_DOLAR_FILA, CELDA_DOLAR_COL).value)
+            except: pass
+        st.sidebar.success("✅ Base de datos sincronizada y guardada en memoria.")
         st.rerun()
 
     st.sidebar.markdown("<br><br><br>", unsafe_allow_html=True)
@@ -234,19 +267,11 @@ else:
         st.session_state.clear()
         st.rerun()
 
-    # --------------------------------------------------------------------------
-    # CARGA DE VARIABLES GLOBALES EN CACHE
-    # --------------------------------------------------------------------------
+    # Cargamos memoria local
     datos_completos = st.session_state.datos_completos
+    valor_dolar_actual = st.session_state.valor_dolar_actual
     categorias_unicas = [""] + sorted(list(set(f[0] for f in datos_completos if f[0])))
-    try: 
-        valor_dolar_actual = float(hoja_inventario.cell(CELDA_DOLAR_FILA, CELDA_DOLAR_COL).value)
-    except: 
-        valor_dolar_actual = 10.00 # Valor por defecto seguro si falla la lectura
 
-    # --------------------------------------------------------------------------
-    # ESTRUCTURA DE PESTAÑAS (TABS)
-    # --------------------------------------------------------------------------
     tab_nombres = ["🛒 Punto de Venta", "📦 Traspasos Internos"]
     if st.session_state.cargo == "JEFE": 
         tab_nombres.append("⚙️ Panel de Administrador (JEFE)")
@@ -254,10 +279,9 @@ else:
     tabs = st.tabs(tab_nombres)
 
     # ==========================================================================
-    # PESTAÑA 1: PUNTO DE VENTA (EL CORAZÓN DEL SISTEMA)
+    # PESTAÑA 1: PUNTO DE VENTA 
     # ==========================================================================
     with tabs[0]:
-        # --- SUBRUTINA: MOSTRAR RECIBO GENERADO ---
         if st.session_state.ultimo_recibo_html != "":
             st.success("✅ Operación completada, registrada en Historial y respaldada en Google Drive.")
             st.markdown("### Documento Generado:")
@@ -280,18 +304,16 @@ else:
                     use_container_width=True
                 )
         
-        # --- SUBRUTINA: INTERFAZ NORMAL DE VENTA ---
         else:
             col_buscador, col_carrito = st.columns([5, 5])
             
             # ------------------------------------------------------------------
-            # SECCIÓN IZQUIERDA: BUSCADOR Y AGREGADO AL CARRITO
+            # SECCIÓN IZQUIERDA: BUSCADOR
             # ------------------------------------------------------------------
             with col_buscador:
                 st.markdown("<h3 style='color:#1976D2;'>Buscador de Productos</h3>", unsafe_allow_html=True)
                 with st.container(border=True):
                     
-                    # Filtros en Cascada (Exactamente igual a Tkinter)
                     col_fcat, col_fmar = st.columns(2)
                     with col_fcat: 
                         cat_sel = st.selectbox("Filtrar por Categoría:", categorias_unicas)
@@ -306,11 +328,9 @@ else:
                         f_idx = obtener_fila_producto(datos_completos, prod_sel)
                         fila_datos = datos_completos[f_idx - 2]
                         
-                        # Obtener Stock Local Seguro
                         try: stk_local = int(fila_datos[st.session_state.col_index - 1]) if len(fila_datos) >= st.session_state.col_index and fila_datos[st.session_state.col_index - 1] else 0
                         except ValueError: stk_local = 0
 
-                        # Obtener Stocks Globales (Lectura de Columnas)
                         s_msc = fila_datos[COLUMNAS_TIENDA["MI STORE CENTER"]-1] if len(fila_datos) >= COLUMNAS_TIENDA["MI STORE CENTER"] else "0"
                         s_glp = fila_datos[COLUMNAS_TIENDA["GALERIA LA PAZ"]-1] if len(fila_datos) >= COLUMNAS_TIENDA["GALERIA LA PAZ"] else "0"
                         s_azt = fila_datos[COLUMNAS_TIENDA["AZTLAN"]-1] if len(fila_datos) >= COLUMNAS_TIENDA["AZTLAN"] else "0"
@@ -318,30 +338,42 @@ else:
                         
                         st.info(f"📦 **MI STORE:** {s_msc} | **GALERIA:** {s_glp} | **AZTLAN:** {s_azt} | **UYUS:** {s_uyu}")
                         
-                        # Lógica de Precios Matemáticos
                         precio_usd = float(fila_datos[COL_PRECIO_USD - 1]) if len(fila_datos) >= COL_PRECIO_USD and fila_datos[COL_PRECIO_USD - 1] else 0.0
                         extra_bs = float(fila_datos[COL_PRECIO_ADICIONAL - 1]) if len(fila_datos) >= COL_PRECIO_ADICIONAL and fila_datos[COL_PRECIO_ADICIONAL - 1] else 0.0
                         
                         mayor_bs = precio_usd * valor_dolar_actual
                         menor_bs = mayor_bs + extra_bs
                         
-                        # Panel de Selección de Cantidad y Precio
+                        # Si cambiamos de producto en el buscador, reseteamos las variables de estado
+                        if st.session_state.producto_actual != prod_sel:
+                            st.session_state.producto_actual = prod_sel
+                            st.session_state.cobro_bs_input = float(menor_bs)
+                            st.session_state.cobro_usd_input = float(menor_bs) / valor_dolar_actual if valor_dolar_actual > 0 else 0.0
+
                         st.markdown("---")
-                        col_c1, col_c2, col_c3 = st.columns([1.5, 2, 2])
+                        # AQUÍ ESTÁ EL NUEVO CUADRO AÑADIDO (5 COLUMNAS EN TOTAL)
+                        col_c1, col_c2, col_c2b, col_c3, col_c4 = st.columns([1.2, 1.5, 1.5, 1.5, 1.5])
+                        
                         with col_c1: 
                             cant_ingresada = st.number_input("Cantidad", min_value=1, max_value=9999, value=1)
                         with col_c2: 
-                            st.text_input("Precio Ref. Mayor (Bs)", f"{mayor_bs:.2f}", disabled=True)
+                            st.text_input("Ref. Mayor (Bs)", f"{mayor_bs:.2f} Bs", disabled=True)
+                        with col_c2b: 
+                            st.text_input("Ref. Mayor ($us)", f"{precio_usd:.2f} $us", disabled=True)
                         with col_c3: 
-                            cobro_ingresado = st.number_input("Precio de Cobro c/u (Bs)", value=float(menor_bs), format="%.2f")
+                            # Input del cobro en Bolivianos
+                            st.number_input("Cobrar c/u (Bs)", key="cobro_bs_input", on_change=bs_modificado, format="%.2f")
+                        with col_c4: 
+                            # Input del cobro en Dólares
+                            st.number_input("Cobrar c/u ($us)", key="cobro_usd_input", on_change=usd_modificado, format="%.2f")
 
-                        # Botón Añadir al Carrito (Con Validación de Stock)
                         if st.button("➕ AÑADIR AL CARRITO", type="primary", use_container_width=True):
                             if cant_ingresada > stk_local:
                                 st.error(f"❌ Stock insuficiente. Solo hay {stk_local} unidades disponibles en {st.session_state.tienda}.")
                             else:
                                 subt_ref_calculado = cant_ingresada * (mayor_bs + extra_bs)
-                                subt_cobrado_calculado = cant_ingresada * cobro_ingresado
+                                # Tomamos el valor de la sesión que ya está en Bs (y que está sincronizado con el de Dólares)
+                                subt_cobrado_calculado = cant_ingresada * st.session_state.cobro_bs_input
                                 
                                 st.session_state.carrito.append({
                                     "producto": prod_sel, 
@@ -362,12 +394,14 @@ else:
                     if cot_file is not None:
                         if st.button("🔄 Cargar Productos de la Cotización"):
                             contenido = cot_file.getvalue().decode("utf-8")
-                            # Regex exactos de Tkinter para V1, V2 y V3
+                            
+                            # Nuevos Regex universales: leen el HTML del .exe antiguo y el de la Web nueva
                             patrones = [
-                                r"<tr>\s*<td>(\d+)</td>\s*<td>(.*?)</td>\s*<td class=\"right\">([\d.]+)</td>\s*<td class=\"right\">([\d.]+)</td>\s*<td class=\"right\">([\d.]+)</td>\s*<td class=\"right\">([\d.]+)</td>\s*</tr>",
-                                r"<tr>\s*<td>(\d+)</td>\s*<td>(.*?)</td>\s*<td class=\"right\">([\d.]+)</td>\s*<td class=\"right\">([\d.]+)</td>\s*<td class=\"right\">([\d.]+)</td>\s*</tr>",
-                                r"<tr>\s*<td>(\d+)</td>\s*<td>(.*?)</td>\s*<td class=\"right\">([\d.]+)</td>\s*<td class=\"right\">([\d.]+)</td>\s*</tr>"
+                                r"<tr>\s*<td[^>]*>\s*(\d+)\s*</td>\s*<td[^>]*>\s*(.*?)\s*</td>\s*<td[^>]*>\s*([\d.]+)\s*</td>\s*<td[^>]*>\s*([\d.]+)\s*</td>\s*<td[^>]*>\s*([\d.]+)\s*</td>\s*<td[^>]*>\s*([\d.]+)\s*</td>\s*</tr>",
+                                r"<tr>\s*<td[^>]*>\s*(\d+)\s*</td>\s*<td[^>]*>\s*(.*?)\s*</td>\s*<td[^>]*>\s*([\d.]+)\s*</td>\s*<td[^>]*>\s*([\d.]+)\s*</td>\s*<td[^>]*>\s*([\d.]+)\s*</td>\s*</tr>",
+                                r"<tr>\s*<td[^>]*>\s*(\d+)\s*</td>\s*<td[^>]*>\s*(.*?)\s*</td>\s*<td[^>]*>\s*([\d.]+)\s*</td>\s*<td[^>]*>\s*([\d.]+)\s*</td>\s*</tr>"
                             ]
+                            
                             matches = []
                             tipo_patron = 0
                             for idx_p, patron in enumerate(patrones):
@@ -379,7 +413,7 @@ else:
                             if not matches:
                                 st.error("No se encontraron productos válidos en el archivo HTML. Asegúrese de que es una cotización del sistema.")
                             else:
-                                st.session_state.carrito = [] # Se limpia el carrito actual si se carga una cotización
+                                st.session_state.carrito = [] 
                                 prods_no_encontrados = []
                                 
                                 for match in matches:
@@ -389,7 +423,6 @@ else:
                                     
                                     cant_int = int(cant_s); prod_nom = normalizar_texto(prod_n); subt_bs = float(bs_s)
                                     
-                                    # Verificar existencia en DB
                                     f_idx = obtener_fila_producto(datos_completos, prod_nom)
                                     if f_idx == -1:
                                         prods_no_encontrados.append(prod_nom)
@@ -413,7 +446,7 @@ else:
                                 st.rerun()
 
             # ------------------------------------------------------------------
-            # SECCIÓN DERECHA: GESTIÓN DEL CARRITO Y COBRO
+            # SECCIÓN DERECHA: CARRITO, EDICIÓN Y PAGOS
             # ------------------------------------------------------------------
             with col_carrito:
                 st.markdown("<h3 style='color:#388E3C;'>🛒 Carrito de Compras</h3>", unsafe_allow_html=True)
@@ -422,13 +455,10 @@ else:
                     st.warning("El carrito está vacío. Agregue productos desde el buscador.")
                 else:
                     with st.container(border=True):
-                        # REPLICA DE FUNCIONALIDAD TKINTER: Lista, Edición y Borrado Individual
                         for idx, item in enumerate(st.session_state.carrito):
-                            c_tit, c_inp, c_mto, c_btn = st.columns([4, 2, 2, 1])
-                            
+                            c_tit, c_inp, c_mto = st.columns([5, 2, 3])
                             c_tit.markdown(f"**{item['producto']}**")
                             
-                            # Logica de edición en tiempo real de cantidad
                             nueva_cant = c_inp.number_input("Cant.", min_value=1, max_value=9999, value=item['cantidad'], key=f"edit_{idx}", label_visibility="collapsed")
                             
                             if nueva_cant != item['cantidad']:
@@ -438,7 +468,6 @@ else:
                                 if nueva_cant > stk_act:
                                     st.error(f"Stock excedido ({stk_act} máximo)")
                                 else:
-                                    # Recalcular precios proporcionales
                                     precio_unitario_cob = item['subtotal_cobrado'] / item['cantidad']
                                     precio_unitario_ref = item['subtotal_ref'] / item['cantidad']
                                     
@@ -450,13 +479,24 @@ else:
                                     st.rerun()
                                     
                             c_mto.write(f"**{item['subtotal_cobrado']:.2f} Bs**")
+                        
+                        st.markdown("---")
+                        
+                        # --- ELIMINAR ELEMENTOS INDIVIDUALES (COMO EL .EXE) ---
+                        st.markdown("#### 🗑️ Opciones de Eliminación")
+                        opciones_eliminar = [f"{idx}: {item['producto']} (x{item['cantidad']})" for idx, item in enumerate(st.session_state.carrito)]
+                        item_a_eliminar = st.selectbox("Seleccione un producto para quitar:", opciones_eliminar)
+                        
+                        col_del1, col_del2 = st.columns(2)
+                        if col_del1.button("🗑️ Quitar Seleccionado", use_container_width=True):
+                            idx_borrar = int(item_a_eliminar.split(":")[0])
+                            st.session_state.carrito.pop(idx_borrar)
+                            st.rerun()
                             
-                            # Logica de Borrado del ultimo / especifico elemento
-                            if c_btn.button("🗑️", key=f"del_btn_{idx}", help="Eliminar este producto"):
-                                st.session_state.carrito.pop(idx)
-                                st.rerun()
+                        if col_del2.button("↩️ Deshacer Último", use_container_width=True):
+                            deshacer_ultimo()
+                            st.rerun()
 
-                        # Sumatorias Totales
                         t_ref = sum(i["subtotal_ref"] for i in st.session_state.carrito)
                         t_real = sum(i["subtotal_cobrado"] for i in st.session_state.carrito)
                         t_usd = sum(i["subtotal_usd"] for i in st.session_state.carrito)
@@ -466,23 +506,16 @@ else:
                         col_tot1.metric("SUBTOTAL REFERENCIAL (Bs)", f"{t_ref:.2f}")
                         col_tot2.metric("💳 TOTAL A COBRAR (Bs)", f"{t_real:.2f}", f"${t_usd:.2f} USD", delta_color="off")
                         
-                        col_vd1, col_vd2 = st.columns(2)
-                        if col_vd1.button("↩️ Deshacer Último", use_container_width=True):
-                            if st.session_state.carrito: st.session_state.carrito.pop(); st.rerun()
-                        if col_vd2.button("🗑️ Vaciar Todo", use_container_width=True):
-                            st.session_state.carrito = []; st.rerun()
+                        if st.button("🗑️ Vaciar Todo el Carrito", use_container_width=True):
+                            vaciar_carrito()
+                            st.rerun()
 
                     st.markdown("<br>", unsafe_allow_html=True)
 
-                    # ------------------------------------------------------------------
-                    # BOTONERA PRINCIPAL DE ACCIONES (SIMULA TKINTER BUTTONS)
-                    # ------------------------------------------------------------------
-                    # Si no hay ningún modal abierto, mostramos los botones normales
                     if st.session_state.modal_abierto is None:
                         col_acc1, col_acc2 = st.columns(2)
                         
                         if col_acc1.button("📝 GENERAR COTIZACIÓN", use_container_width=True):
-                            # LOGICA DE COTIZACIÓN DIRECTA (SIN AFECTAR INVENTARIO)
                             fecha_h = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                             html_cot = f"""
                             <div style="font-family:'Courier New', monospace; background:white; color:black; width:100%; max-width:400px; margin:0 auto; padding:20px; border-radius:5px; border: 2px dashed #FF9800;">
@@ -505,8 +538,6 @@ else:
                                 <div style="text-align:center; font-size:12px; color:#D32F2F; font-weight:bold; margin-top:15px;">Teléfonos de ref: 75295017 - 78851301<br>DOCUMENTO NO VÁLIDO COMO RECIBO<br>*Precios sujetos a cambio*</div>
                             </div>
                             """
-                            
-                            # Guardado y subida a Drive Automática
                             mes, anio = obtener_mes_actual()
                             t_seg = st.session_state.tienda.replace(" ", "_")
                             c_mes = f"COTIZACIONES_{mes.upper()}_{anio}"
@@ -521,29 +552,30 @@ else:
 
                         if col_acc2.button("✅ FINALIZAR VENTA", type="primary", use_container_width=True):
                             st.session_state.modal_abierto = "pago_normal"
+                            st.session_state.obs_temporal = ""
                             st.rerun()
 
                         if st.button("⚠️ REALIZAR VENTA CON OBSERVACIÓN", use_container_width=True):
                             st.session_state.modal_abierto = "pago_obs"
                             st.rerun()
 
-                    # ------------------------------------------------------------------
-                    # PANELES DE PAGO INTERACTIVOS (SUSTITUTO DE TOPLEVEL)
-                    # ------------------------------------------------------------------
+                        if st.session_state.cargo == "JEFE":
+                            if st.button("🚚 REALIZAR ENVÍO A OTRO DEPARTAMENTO", use_container_width=True):
+                                st.session_state.modal_abierto = "envio"
+                                st.rerun()
+
                     if st.session_state.modal_abierto in ["pago_normal", "pago_obs"]:
                         st.markdown("<hr style='border: 2px solid #FF9800;'>", unsafe_allow_html=True)
                         st.subheader("💳 Panel de Cobro")
                         st.info(f"Monto a cubrir: **{t_real:.2f} Bs**")
                         
                         if st.session_state.modal_abierto == "pago_obs":
-                            st.session_state.obs_temporal = st.text_input("⚠️ Ingrese la Observación de la venta:")
+                            st.session_state.obs_temporal = st.text_input("⚠️ Ingrese la Observación obligatoria de la venta:")
 
-                        # Botones de Pago Rápido
                         col_pr1, col_pr2 = st.columns(2)
                         btn_efectivo = col_pr1.button("💵 COBRAR 100% EFECTIVO", use_container_width=True)
                         btn_qr = col_pr2.button("📱 COBRAR 100% QR", use_container_width=True)
                         
-                        # Panel de Pago Mixto
                         st.markdown("##### O seleccione Pago Mixto (Especifique montos)")
                         col_pm1, col_pm2, col_pm3 = st.columns(3)
                         with col_pm1: v_efe = st.number_input("Efectivo (Bs)", 0.0, format="%.2f")
@@ -555,7 +587,6 @@ else:
                             st.session_state.modal_abierto = None
                             st.rerun()
 
-                        # Lógica de procesamiento de pagos
                         procesar = False
                         txt_metodo = ""; p_efe = 0.0; p_qr = 0.0; p_usd = 0.0
                         
@@ -572,7 +603,6 @@ else:
                                 p_efe = v_efe; p_qr = v_qr; p_usd = v_usd; procesar = True
                                 
                         if procesar:
-                            # Validación extra para observación
                             if st.session_state.modal_abierto == "pago_obs" and not st.session_state.obs_temporal.strip():
                                 st.error("Debe ingresar el texto de la observación para continuar.")
                             else:
@@ -583,10 +613,11 @@ else:
                                     for item in st.session_state.carrito:
                                         idx = obtener_fila_producto(datos_completos, item["producto"])
                                         s_act = int(hoja_inventario.cell(idx, st.session_state.col_index).value or 0)
-                                        # 1. Descuento de Inventario
+                                        
+                                        # 1. Actualización de Stock en Inventario
                                         hoja_inventario.update_cell(idx, st.session_state.col_index, s_act - item["cantidad"])
                                         
-                                        # 2. Cálculos para las 12 columnas exactas
+                                        # 2. Las 12 columnas proporcionales
                                         ratio = item['subtotal_cobrado'] / t_real if t_real > 0 else 0
                                         i_qr = round(p_qr * ratio, 2)
                                         i_efe = round(p_efe * ratio, 2)
@@ -597,7 +628,6 @@ else:
                                         if st.session_state.modal_abierto == "pago_obs": t_movimiento += f" [OBS: {st.session_state.obs_temporal}]"
                                         t_movimiento += f" [PAGO: {txt_metodo}]"
                                         
-                                        # 3. Creación de la Fila del Historial
                                         filas_historial.append([
                                             fecha_h, 
                                             st.session_state.tienda, 
@@ -615,7 +645,6 @@ else:
                                         
                                     hoja_historial.append_rows(filas_historial)
                                     
-                                    # 4. Creación del HTML del Comprobante
                                     html_venta = f"""
                                     <div style="font-family:'Courier New', monospace; background:white; color:black; width:100%; max-width:400px; margin:0 auto; padding:20px; border-radius:5px; border: 1px solid #ccc;">
                                         <h2 style="text-align:center;">{st.session_state.tienda}</h2>
@@ -638,7 +667,6 @@ else:
                                     </div>
                                     """
                                     
-                                    # 5. Guardar en Drive
                                     mes, anio = obtener_mes_actual()
                                     t_segura = st.session_state.tienda.replace(" ", "_")
                                     c_mes = f"COMPROBANTES_{mes.upper()}_{anio}"
@@ -646,18 +674,45 @@ else:
                                     with open(ruta_tmp, "w", encoding="utf-8") as f: f.write(html_venta)
                                     subir_archivo_drive(ruta_tmp, "COMPROBANTES", st.session_state.tienda, c_mes)
 
-                                    # 6. Reset y Mostrar Factura
                                     st.session_state.ultimo_recibo_html = html_venta
                                     st.session_state.carrito = []
                                     st.session_state.modal_abierto = None
-                                    st.session_state.datos_completos = cargar_datos_locales()
+                                    st.session_state.datos_completos = cargar_datos_locales() # Actualizar memoria tras venta
                                     st.rerun()
 
+                    elif st.session_state.modal_abierto == "envio":
+                        st.markdown("---")
+                        st.info("### 🚚 Envío de todo el carrito a otro Departamento")
+                        departamentos = ["Beni", "Sucre", "Cochabamba", "La Paz", "Oruro", "Pando", "Potosí", "Santa Cruz de la Sierra", "Tarija"]
+                        dest_envio = st.selectbox("Seleccione el destino:", departamentos)
+                        
+                        col_e1, col_e2 = st.columns(2)
+                        if col_e1.button("✅ Confirmar Envío Oficial", type="primary", use_container_width=True):
+                            fecha_h = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                            filas_h = []
+                            for item in st.session_state.carrito:
+                                idx = obtener_fila_producto(datos_completos, item["producto"])
+                                s_act = int(hoja_inventario.cell(idx, st.session_state.col_index).value or 0)
+                                hoja_inventario.update_cell(idx, st.session_state.col_index, s_act - item["cantidad"])
+                                filas_h.append([
+                                    fecha_h, st.session_state.tienda, item["producto"], f"-{item['cantidad']} (ENVIO A {dest_envio.upper()})",
+                                    st.session_state.usuario, round(item['subtotal_ref'], 2), round(item['diferencia'], 2), round(item['subtotal_cobrado'], 2), 0,0,0,0
+                                ])
+                            hoja_historial.append_rows(filas_h)
+                            st.success("Envío registrado exitosamente.")
+                            st.session_state.carrito = []
+                            st.session_state.modal_abierto = None
+                            st.session_state.datos_completos = cargar_datos_locales()
+                            st.rerun()
+                        if col_e2.button("❌ Cancelar", use_container_width=True):
+                            st.session_state.modal_abierto = None
+                            st.rerun()
+
     # ==========================================================================
-    # PESTAÑA 2: TRASPASOS Y ENVÍOS
+    # PESTAÑA 2: TRASPASOS INTERNOS
     # ==========================================================================
     with tabs[1]:
-        st.header("📦 Traspasar o Enviar Productos")
+        st.header("📦 Traspaso Rápido de 1 Producto (Sucursales)")
         prods_totales = [""] + [f[2] for f in datos_completos if len(f)>2 and f[2]]
         prod_t = st.selectbox("Selecciona el producto a traspasar:", prods_totales, key="t_prod")
         
@@ -679,37 +734,30 @@ else:
             if osuc: texto_inf += "  |  " + "  |  ".join(osuc)
             st.info(texto_inf)
             
-            st.markdown("#### Detalles del Envío")
-            destinos = [s for s in COLUMNAS_TIENDA.keys() if s != st.session_state.tienda] + ["Beni", "Sucre", "Cochabamba", "Oruro", "Pando", "Potosí", "Santa Cruz de la Sierra", "Tarija"]
-            t_dest = st.selectbox("Destino (Sucursal o Departamento Exterior):", destinos)
+            st.markdown("#### Detalles del Traspaso Interno")
+            destinos = [s for s in COLUMNAS_TIENDA.keys() if s != st.session_state.tienda]
+            t_dest = st.selectbox("Sucursal Destino:", destinos)
             t_cant = st.number_input("Cantidad a enviar:", 1, stk_disp_t if stk_disp_t > 0 else 1, 1)
             
-            if st.button("🚚 Confirmar Envío", type="primary", use_container_width=True):
+            if st.button("🚚 Confirmar Traspaso Interno", type="primary", use_container_width=True):
                 if t_cant > stk_disp_t: 
                     st.error("No tienes suficiente stock para realizar este envío.")
                 else:
-                    with st.spinner("Registrando envío..."):
-                        col_orig = st.session_state.col_index
-                        val_orig = hoja_inventario.cell(idx_t, col_orig).value
-                        hoja_inventario.update_cell(idx_t, col_orig, (int(val_orig) if val_orig else 0) - t_cant)
+                    with st.spinner("Procesando Traspaso..."):
+                        col_origen = st.session_state.col_index
+                        val_orig = hoja_inventario.cell(idx_t, col_origen).value
+                        hoja_inventario.update_cell(idx_t, col_origen, (int(val_orig) if val_orig else 0) - t_cant)
+                        
+                        col_destino = COLUMNAS_TIENDA[t_dest]
+                        val_dest = hoja_inventario.cell(idx_t, col_destino).value
+                        hoja_inventario.update_cell(idx_t, col_destino, (int(val_dest) if val_dest else 0) + t_cant)
                         
                         fh = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                        
-                        if t_dest in COLUMNAS_TIENDA:
-                            # Es Traspaso Interno a otra sucursal
-                            col_des = COLUMNAS_TIENDA[t_dest]
-                            val_des = hoja_inventario.cell(idx_t, col_des).value
-                            hoja_inventario.update_cell(idx_t, col_des, (int(val_des) if val_des else 0) + t_cant)
-                            
-                            hoja_historial.append_row([fh, st.session_state.tienda, prod_t, f"-{t_cant} (TRASPASO A {t_dest})", st.session_state.usuario, 0,0,0,0,0,0,0])
-                            hoja_historial.append_row([fh, t_dest, prod_t, f"+{t_cant} (TRASPASO DE {st.session_state.tienda})", st.session_state.usuario, 0,0,0,0,0,0,0])
-                            st.success(f"✅ Traspaso interno de {t_cant} unidades hacia {t_dest} completado.")
-                        else:
-                            # Es Envío a Departamento Externo
-                            hoja_historial.append_row([fh, st.session_state.tienda, prod_t, f"-{t_cant} (ENVIO A {t_dest.upper()})", st.session_state.usuario, 0,0,0,0,0,0,0])
-                            st.success(f"✅ Envío externo de {t_cant} unidades hacia {t_dest} registrado.")
-                            
+                        hoja_historial.append_row([fh, st.session_state.tienda, prod_t, f"-{t_cant} (TRASPASO A {t_dest})", st.session_state.usuario, 0,0,0,0,0,0,0])
+                        hoja_historial.append_row([fh, t_dest, prod_t, f"+{t_cant} (TRASPASO DE {st.session_state.tienda})", st.session_state.usuario, 0,0,0,0,0,0,0])
+                        st.success(f"✅ Traspaso interno de {t_cant} unidades hacia {t_dest} completado.")
                         st.session_state.datos_completos = cargar_datos_locales()
+                        st.rerun()
 
     # ==========================================================================
     # PESTAÑA 3: PANEL DE ADMINISTRADOR (JEFE ONLY)
@@ -726,14 +774,15 @@ else:
                     n_dol = st.number_input("Cotización Dólar (Bs/USD)", value=float(valor_dolar_actual))
                     if st.button("Actualizar Dólar en todo el Sistema", use_container_width=True):
                         hoja_inventario.update_cell(CELDA_DOLAR_FILA, CELDA_DOLAR_COL, n_dol)
+                        st.session_state.valor_dolar_actual = n_dol
                         st.success("✅ Dólar actualizado."); st.rerun()
                         
                 with cd2:
                     st.markdown("#### Configurar Precios por Producto")
-                    p_conf = st.selectbox("Elegir Producto:", [""] + [f[2] for f in datos_completos if len(f)>2], key="cp")
+                    p_conf = st.selectbox("Elegir Producto para cambiar precio:", [""] + [f[2] for f in datos_completos if len(f)>2], key="cp")
                     if p_conf:
                         idx_c = obtener_fila_producto(datos_completos, p_conf)
-                        fila_c = hoja_inventario.row_values(idx_c)
+                        fila_c = datos_completos[idx_c - 2]
                         v_usd = float(fila_c[COL_PRECIO_USD-1]) if len(fila_c)>=COL_PRECIO_USD and fila_c[COL_PRECIO_USD-1] else 0.0
                         v_ext = float(fila_c[COL_PRECIO_ADICIONAL-1]) if len(fila_c)>=COL_PRECIO_ADICIONAL and fila_c[COL_PRECIO_ADICIONAL-1] else 0.0
                         
@@ -751,7 +800,7 @@ else:
                 p_aj = st.selectbox("Seleccione el producto a ajustar:", [""] + [f[2] for f in datos_completos if len(f)>2], key="ap")
                 if p_aj:
                     idx_aj = obtener_fila_producto(datos_completos, p_aj)
-                    fila_datos_aj = hoja_inventario.row_values(idx_aj)
+                    fila_datos_aj = datos_completos[idx_aj - 2]
                     
                     suc_aj = st.selectbox("¿En qué sucursal afectará el stock?", list(COLUMNAS_TIENDA.keys()))
                     col_aj = COLUMNAS_TIENDA[suc_aj]
@@ -886,7 +935,7 @@ else:
                         st.download_button("📥 Descargar Reporte TXT", txt, file_name=r_tmp)
 
             # --- 4. CIERRE DE MES (MANTENIMIENTO) ---
-            with st.expander("🛑 4. Zona de Peligro (Limpieza y Cierre)", expanded=False):
+            with st.expander("⚠️ 4. Zona de Peligro (Limpieza y Cierre)", expanded=False):
                 st.warning("⚠️ **Atención:** Archivar el mes cortará el historial actual y lo dejará en blanco, guardando la copia en una pestaña nueva del Excel.")
                 if st.button("Archivar Mes Actual e Iniciar Nuevo Historial", type="secondary", use_container_width=True):
                     mes, anio = obtener_mes_actual(); nombre = f"Historial_{mes}_{anio}"
@@ -896,4 +945,4 @@ else:
                         hoja_historial.append_row(["Fecha y Hora", "Tienda", "Producto", "Cantidad (Movimiento)", "Usuario (Vendedor)", "Subtotal Ref (Bs)", "Diferencia Ajuste (Bs)", "Total Ticket (Bs)", "PAGO QR (Bs)", "PAGO EFECTIVO (Bs)", "PAGO MIXTO (Total Bs)", "PAGO DOLARES ($us)"])
                         st.success(f"✅ Mes archivado con éxito. Se creó la pestaña de seguridad '{nombre}'.")
                     except Exception as e:
-                        st.error(f"Error al archivar. Es posible que ya exista una pestaña llamada '{nombre}' en su Excel. Revise Google Sheets.")
+                        st.error(f"Error al archivar. Es posible que ya exista una pestaña llamada '{nombre}' en su Excel.")
