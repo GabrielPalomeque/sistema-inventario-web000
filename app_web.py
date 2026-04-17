@@ -44,7 +44,7 @@ CELDA_DOLAR_COL = 9
 COL_PRECIO_USD = 10        
 COL_PRECIO_ADICIONAL = 11  
 
-ID_CARPETA_BASE_DRIVE = "1Dm99RvDStOaWYJ5dxDgiFz9SpyzsNbwv"
+ID_CARPETA_BASE_DRIVE = "1D1ryl9uZvjx6dABKuEteDZit8cFK_DVO"
 
 # ==============================================================================
 # CONEXIÓN A SERVICIOS DE GOOGLE (ALTA OPTIMIZACIÓN CON CACHÉ)
@@ -52,23 +52,25 @@ ID_CARPETA_BASE_DRIVE = "1Dm99RvDStOaWYJ5dxDgiFz9SpyzsNbwv"
 @st.cache_resource
 def conectar_servicios():
     scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
+    
+    # ─────────────────────────────────────────────────────────────
+    # NUEVA CONEXIÓN (usando credenciales_nueva.json y PRUEBA_OF2_0)
+    # ─────────────────────────────────────────────────────────────
     creds = ServiceAccountCredentials.from_json_keyfile_name("credenciales.json", scope)
     cliente = gspread.authorize(creds)
     
-    # ENLACE ACTUALIZADO A TU NUEVA HOJA DE DATOS
-    archivo = cliente.open_by_url("https://docs.google.com/spreadsheets/d/1Mfr5GShbSnToWSSzZohsfLQe9-LX4-zvTS1MY9WflIU/edit?usp=sharing")
+    archivo = cliente.open("PRUEBA_OF2_0")   # ← Nueva hoja
     
-    # Descargamos las referencias a las hojas UNA sola vez
     h_inv = archivo.worksheet("Inventario")
     h_hist = archivo.worksheet("Historial")
     h_usu = archivo.worksheet("Usuarios")
-    
+   
     try:
         drive_srv = build('drive', 'v3', credentials=creds)
     except Exception as e:
         drive_srv = None
         print(f"Error al conectar con Drive API: {e}")
-        
+       
     return drive_srv, h_inv, h_hist, h_usu
 
 try:
