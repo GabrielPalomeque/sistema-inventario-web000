@@ -56,7 +56,7 @@ def conectar_servicios():
     cliente = gspread.authorize(creds)
     
     # ENLACE ACTUALIZADO A TU NUEVA HOJA DE DATOS
-    archivo = cliente.open_by_url("https://docs.google.com/spreadsheets/d/1Mfr5GShbSnToWSSzZohsfLQe9-LX4-zvTS1MY9WflIU/edit?gid=0#gid=0")
+    archivo = cliente.open_by_url("https://docs.google.com/spreadsheets/d/1iZCYXwQd4WIPz_py0nGWu9vNR1DbMYoBw1XiCpKfsyo/edit?gid=0#gid=0")
     
     # Descargamos las referencias a las hojas UNA sola vez
     h_inv = archivo.worksheet("Inventario")
